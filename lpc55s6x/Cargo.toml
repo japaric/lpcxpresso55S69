@@ -1,0 +1,25 @@
+[package]
+authors = ["Jorge Aparicio <jorge@japaric.io>"]
+edition = "2018"
+name = "lpc55s6x"
+publish = false # this is a prototype
+version = "0.0.0-alpha.0"
+
+[dependencies]
+bare-metal = "0.2.4"
+r0 = "0.2.2"
+
+[dependencies.cortex-m-rtfm]
+branch = "heterogeneous"
+features = ["homogeneous"]
+git = "https://github.com/japaric/cortex-m-rtfm"
+
+[dev-dependencies]
+cortex-m = "0.6.0"
+panic-halt = "0.2.0"
+
+[profile.release]
+codegen-units = 1
+debug = true
+lto = true
+opt-level = "z"
