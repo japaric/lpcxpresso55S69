@@ -11,52 +11,114 @@ _stack_start_1 = ORIGIN(SRAM1) + LENGTH(SRAM1);
 
 SECTIONS
 {
-  .vectors ORIGIN(FLASH) :
+  .vectors_0 :
   {
     LONG(_stack_start_0);
     LONG(_start_0);
-    KEEP(*(.vectors.0));
-
-    /* 60 interrupts + 16 exceptions = 76 entries => 128 WORD alignment is required */
-    . = ALIGN(4*128);
-    _vectors_1 = .;
-    LONG(_stack_start_1);
-    LONG(_start_1);
-    KEEP(*(.vectors.1));
+    KEEP(*(.vectors_0));
   } > FLASH
 
-  .text : ALIGN(4)
+  .text :
   {
+    *(.text_0.*);
     *(.text .text.*);
   } > FLASH
 
-  .rodata : ALIGN(4)
+  .rodata :
   {
     *(.rodata .rodata.*);
 
+    /* align the LMA of the following sections */
     . = ALIGN(4);
   } > FLASH
 
-  .bss : ALIGN(4)
+  /* start of core-specific RTFM sections */
+  .data_0 : ALIGN(4)
   {
-    *(.bss .bss.*);
-
+    *(.data_0.*);
     . = ALIGN(4);
-  } > SRAM2
+  } > SRAM0 AT > FLASH
 
-  _sbss = ADDR(.bss);
-  _ebss = ADDR(.bss) + SIZEOF(.bss);
+  _sdata_0 = ADDR(.data_0);
+  _edata_0 = ADDR(.data_0) + SIZEOF(.data_0);
+  _sidata_0 = LOADADDR(.data_0);
+
+  .bss_0 (NOLOAD) : ALIGN(4)
+  {
+    *(.bss_0.*);
+    . = ALIGN(4);
+  } > SRAM0
+
+  /* _sbss_0 = _edata_0; /\* asserted below *\/ */
+  _ebss_0 = ADDR(.bss_0) + SIZEOF(.bss_0);
+
+  .uninit_0 (NOLOAD) :
+  {
+    *(.uninit_0.*);
+  } > SRAM0
+
+  .vectors_1 :
+  {
+    LONG(_stack_start_1);
+    LONG(_start_1);
+    KEEP(*(.vectors_1));
+  } > SRAM1 AT > FLASH
+
+  .text_1 :
+  {
+    *(.text_1.*);
+    . = ALIGN(4);
+  } > SRAM1 AT > FLASH
+
+  .data_1 : ALIGN(4)
+  {
+    *(.data_1.*);
+    . = ALIGN(4);
+  } > SRAM1 AT > FLASH
+
+  _sslave = ADDR(.vectors_1);
+  _eslave = ADDR(.data_1) + SIZEOF(.data_1);
+  _sislave = LOADADDR(.vectors_1);
+
+  .bss_1 (NOLOAD) : ALIGN(4)
+  {
+    *(.bss_1.*);
+    . = ALIGN(4);
+  } > SRAM1
+
+  /* _sbss_1 = _eslave; /\* asserted below *\/ */
+  _ebss_1 = ADDR(.bss_1) + SIZEOF(.bss_1);
+
+  .uninit_1 (NOLOAD) :
+  {
+    *(.uninit_1.*);
+  } > SRAM1
+
+  /* end of core-specific RTFM sections */
 
   .data : ALIGN(4)
   {
     *(.data .data.*);
-
     . = ALIGN(4);
   } > SRAM2 AT > FLASH
 
   _sdata = ADDR(.data);
   _edata = ADDR(.data) + SIZEOF(.data);
   _sidata = LOADADDR(.data);
+
+  .bss (NOLOAD) : ALIGN(4)
+  {
+    *(.bss .bss.*);
+    . = ALIGN(4);
+  } > SRAM2
+
+  /* _sbss = _edata; /\* asserted below *\/ */
+  _ebss = ADDR(.bss) + SIZEOF(.bss);
+
+  .uninit (NOLOAD) :
+  {
+    *(.uninit .uninit.*);
+  } > SRAM2
 
   /DISCARD/ :
   {
@@ -65,7 +127,27 @@ SECTIONS
   }
 }
 
-ASSERT(_vectors_1 % 128 == 0, "core #1 vector table must be 128-byte aligned");
+ASSERT(ADDR(.vectors_0) == ORIGIN(FLASH), ".vectors_0 not aligned");
+ASSERT(ADDR(.vectors_1) == ORIGIN(SRAM1), ".vectors_1 not aligned");
+
+ASSERT(_sdata_0 % 4 == 0 && _edata_0 % 4 == 0 && _sidata_0 % 4 == 0, ".data_0 not aligned");
+ASSERT(_ebss_0 % 4 == 0, ".bss_0 not aligned");
+ASSERT(_sslave % 4 == 0 && _eslave % 4 == 0 && _sislave % 4 == 0, "slave memory not aligned");
+ASSERT(_ebss_1 % 4 == 0, ".bss_1 not aligned");
+ASSERT(_sdata % 4 == 0 && _edata % 4 == 0 && _sidata % 4 == 0, ".data not aligned");
+ASSERT(_ebss % 4 == 0, ".bss not aligned");
+
+ASSERT(_edata_0 == ADDR(.bss_0), ".data_0 and .bss_0 are not contiguous");
+ASSERT(
+  ADDR(.vectors_1) + SIZEOF(.vectors_1) == ADDR(.text_1) &&
+  LOADADDR(.vectors_1) + SIZEOF(.vectors_1) == LOADADDR(.text_1),
+  ".vectors_1 and .text_1 are not contiguous");
+ASSERT(
+  ADDR(.text_1) + SIZEOF(.text_1) == ADDR(.data_1) &&
+  LOADADDR(.text_1) + SIZEOF(.text_1) == LOADADDR(.data_1),
+  ".text_1 and .data_1 are not contiguous");
+ASSERT(_eslave == ADDR(.bss_1), ".data_1 and .bss_1 are not contiguous");
+ASSERT(_edata == ADDR(.bss), ".data and .bss are not contiguous");
 
 PROVIDE(NonMaskableInt_0 = DefaultHandler);
 PROVIDE(HardFault_0 = DefaultHandler);

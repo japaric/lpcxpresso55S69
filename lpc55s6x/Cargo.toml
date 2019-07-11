@@ -15,7 +15,8 @@ features = ["homogeneous"]
 git = "https://github.com/japaric/cortex-m-rtfm"
 
 [dev-dependencies]
-cortex-m = "0.6.0"
+# inline-asm is a workaround for rust-embedded/cortex-m-rt#156
+cortex-m = { version = "0.6.0", features = ["inline-asm"] }
 panic-halt = "0.2.0"
 
 [profile.release]

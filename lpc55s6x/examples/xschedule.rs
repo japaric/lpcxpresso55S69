@@ -5,7 +5,7 @@
 use lpc55s6x::{Duration, BLUE, RED};
 use panic_halt as _;
 
-const PERIOD: u32 = 96_000_000; // about one second
+const PERIOD: u32 = 8_000_000; // about one second
 
 #[rtfm::app(device = lpc55s6x, cores = 2, monotonic = lpc55s6x::CTIMER0)]
 const APP: () = {
@@ -34,13 +34,13 @@ const APP: () = {
 
     extern "C" {
         #[core = 0]
-        fn GPIO_GLOBALINT0();
+        fn CTIMER0();
         #[core = 0]
-        fn GPIO_GLOBALINT1();
+        fn CTIMER1();
 
         #[core = 1]
-        fn GPIO_GLOBALINT0();
+        fn CTIMER0();
         #[core = 1]
-        fn GPIO_GLOBALINT1();
+        fn CTIMER1();
     }
 };

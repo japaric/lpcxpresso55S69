@@ -10,7 +10,7 @@ use core::{
 };
 
 use bare_metal::Nr;
-use rtfm::Monotonic;
+use rtfm::{Fraction, Monotonic, MultiCore};
 
 // the vector table of both cores have the exact same layout
 pub use Interrupt_0 as Interrupt_1;
@@ -55,6 +55,7 @@ unsafe extern "C" fn MAILBOX_0() {
 }
 
 #[no_mangle]
+#[link_section = ".text_1.MAILBOX_1"]
 unsafe extern "C" fn MAILBOX_1() {
     let mask = MAILBOX_IRQ0.read_volatile();
     NVIC_ISPR.write_volatile(mask);
@@ -144,11 +145,68 @@ impl GREEN {
 unsafe extern "C" fn _start_0() -> ! {
     const SYSCON_AHBCLKCTRLSET0: *mut u32 = (SYSCON_BASE + 0x220) as *mut u32;
     const SYSCON_AHBCLKCTRLSET1: *mut u32 = (SYSCON_BASE + 0x224) as *mut u32;
+    const SYSCON_AHBCLKDIV: *mut u32 = (SYSCON_BASE + 0x380) as *mut u32;
     const SYSCON_BASE: usize = 0x5000_0000;
     const SYSCON_CPBOOT: *mut u32 = (SYSCON_BASE + 0x804) as *mut u32;
     const SYSCON_CPUCTRL: *mut u32 = (SYSCON_BASE + 0x800) as *mut u32;
     const SYSCON_CPUCTRL_KEY: u32 = 0xc0c4 << 16;
     const SYSCON_CTIMERCLKSEL0: *mut u32 = (SYSCON_BASE + 0x26C) as *mut u32;
+    const SYSCON_FMCCR: *mut u32 = (SYSCON_BASE + 0x400) as *mut u32;
+    const SYSCON_SYSTICKCLKDIV0: *mut u32 = (SYSCON_BASE + 0x300) as *mut u32;
+    const SYSCON_SYSTICKCLKDIV1: *mut u32 = (SYSCON_BASE + 0x304) as *mut u32;
+    const SYSCON_SYSTICKCLKSEL0: *mut u32 = (SYSCON_BASE + 0x260) as *mut u32;
+    const SYSCON_SYSTICKCLKSEL1: *mut u32 = (SYSCON_BASE + 0x264) as *mut u32;
+    // const SYSCON_AHBMATPRIO: *mut u32 = (SYSCON_BASE + 0x10) as *mut u32;
+
+    // initialize memory before we reduce CPU frequency
+    extern "C" {
+        fn main_0() -> !;
+
+        static mut _sdata_0: u32;
+        static mut _edata_0: u32;
+        static _sidata_0: u32;
+
+        static mut _ebss_0: u32;
+
+        static mut _sslave: u32;
+        static mut _eslave: u32;
+        static _sislave: u32;
+
+        static mut _ebss_1: u32;
+
+        static mut _sdata: u32;
+        static mut _edata: u32;
+        static _sidata: u32;
+
+        static mut _ebss: u32;
+    }
+
+    r0::init_data(&mut _sdata_0, &mut _edata_0, &_sidata_0);
+    r0::zero_bss(&mut _edata_0, &mut _ebss_0);
+    r0::init_data(&mut _sslave, &mut _eslave, &_sislave);
+    r0::zero_bss(&mut _eslave, &mut _ebss_1);
+    r0::init_data(&mut _sdata, &mut _edata, &_sidata);
+    r0::zero_bss(&mut _edata, &mut _ebss);
+
+    atomic::compiler_fence(Ordering::SeqCst);
+
+    // [only for testing] give higher memory access priority to the second core
+    // SYSCON_AHBMATPRIO.write_volatile((1 << 4) | (1 << 6));
+
+    // lower CPU frequency to 8 MHz
+    SYSCON_AHBCLKDIV.write_volatile(11);
+
+    // wait until the divider is stable
+    while SYSCON_AHBCLKDIV.read_volatile() & (1 << 31) != 0 {}
+
+    // set Flash wait cycles to 0
+    SYSCON_FMCCR.write_volatile(0);
+
+    // select clocks for SysTicks and enable them
+    SYSCON_SYSTICKCLKSEL0.write_volatile(0);
+    SYSCON_SYSTICKCLKSEL1.write_volatile(0);
+    SYSCON_SYSTICKCLKDIV0.write_volatile(0);
+    SYSCON_SYSTICKCLKDIV1.write_volatile(0);
 
     // enable the MAILBOX peripheral
     SYSCON_AHBCLKCTRLSET0.write_volatile(1 << 26);
@@ -162,6 +220,9 @@ unsafe extern "C" fn _start_0() -> ! {
     // hold the CTIMER0 counter in reset
     CTIMER0_TCR.write_volatile(0b11);
 
+    // set prescaler so that the frequency of CTIMER0 matches the CPU frequency
+    CTIMER0_PR.write_volatile(11);
+
     // unmask the MAILBOX interrupt
     NVIC_ISER.write_volatile(1 << Interrupt_0::MAILBOX.nr());
 
@@ -172,28 +233,9 @@ unsafe extern "C" fn _start_0() -> ! {
     GPIO_SET1.write_volatile(mask); // set high
     GPIO_DIRSET1.write_volatile(mask); // set as outputs
 
-    extern "C" {
-        fn main_0() -> !;
-
-        static mut _sbss: u32;
-        static mut _ebss: u32;
-
-        static mut _sdata: u32;
-        static mut _edata: u32;
-        static _sidata: u32;
-
-        static _vectors_1: u32;
-    }
-
-    /* initialize static variables */
-    r0::zero_bss(&mut _sbss, &mut _ebss);
-    r0::init_data(&mut _sdata, &mut _edata, &_sidata);
-
-    atomic::compiler_fence(Ordering::SeqCst);
-
     /* boot core #1 */
     // set core #1 VTOR (vector table offset)
-    SYSCON_CPBOOT.write_volatile(&_vectors_1 as *const u32 as usize as u32);
+    SYSCON_CPBOOT.write_volatile(&_sslave as *const u32 as usize as u32);
 
     // NOTE the user manual (UM11126 v1.3) got the meaning of these bits backwards
     // enable core #1 clock and hold it in reset
@@ -207,6 +249,7 @@ unsafe extern "C" fn _start_0() -> ! {
 }
 
 #[no_mangle]
+#[link_section = ".text_1._start_1"]
 unsafe extern "C" fn _start_1() -> ! {
     extern "C" {
         fn main_1() -> !;
@@ -276,13 +319,14 @@ pub enum Interrupt_0 {
 }
 
 unsafe impl Nr for Interrupt_0 {
+    #[inline(always)]
     fn nr(&self) -> u8 {
         *self as u8
     }
 }
 
 #[no_mangle]
-unsafe extern "C" fn DefaultHandler_(_ef: &ExceptionFrame) -> ! {
+unsafe extern "C" fn DefaultHandler() -> ! {
     loop {
         atomic::compiler_fence(Ordering::SeqCst);
     }
@@ -378,7 +422,7 @@ extern "C" {
     fn HS_SPI_0();
 }
 
-#[link_section = ".vectors.0"]
+#[link_section = ".vectors_0"]
 #[no_mangle]
 static VECTORS_0: [Option<unsafe extern "C" fn()>; 74] = [
     // exception 2
@@ -537,7 +581,7 @@ extern "C" {
     fn HS_SPI_1();
 }
 
-#[link_section = ".vectors.1"]
+#[link_section = ".vectors_1"]
 #[no_mangle]
 static VECTORS_1: [Option<unsafe extern "C" fn()>; 74] = [
     // exception 2
@@ -635,16 +679,20 @@ static VECTORS_1: [Option<unsafe extern "C" fn()>; 74] = [
 
 /* Instant API */
 const CTIMER0_BASE: usize = 0x4000_8000;
-const CTIMER0_TCR: *mut u32 = (CTIMER0_BASE + 0x04) as *mut u32;
+const CTIMER0_PR: *mut u32 = (CTIMER0_BASE + 0x0c) as *mut u32;
 const CTIMER0_TC: *mut u32 = (CTIMER0_BASE + 0x08) as *mut u32;
+const CTIMER0_TCR: *mut u32 = (CTIMER0_BASE + 0x04) as *mut u32;
 
 pub struct CTIMER0;
 
-unsafe impl Monotonic for CTIMER0 {
+impl Monotonic for CTIMER0 {
     type Instant = Instant;
 
-    fn ratio() -> u32 {
-        1
+    fn ratio() -> Fraction {
+        Fraction {
+            numerator: 1,
+            denominator: 1,
+        }
     }
 
     fn now() -> Instant {
@@ -660,6 +708,8 @@ unsafe impl Monotonic for CTIMER0 {
         Instant { inner: 0 }
     }
 }
+
+impl MultiCore for CTIMER0 {}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Instant {
